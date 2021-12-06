@@ -27,11 +27,11 @@ class DCGANModel(BaseModel):
 
         # define networks (both Generator and discriminator)
         self.netG = networks.define_G(opt.output_nc, opt.ngf, opt.nz, opt.netG, opt.norm, opt.init_type, opt.init_gain,
-                                      self.gpu_ids)
+                                      self.gpu_ids, isize=opt.crop_size)
 
         if self.isTrain:  # define discriminator
             self.netD = networks.define_D(opt.input_nc, opt.ndf, opt.netD, opt.norm, opt.init_type, opt.init_gain,
-                                          self.gpu_ids)
+                                          self.gpu_ids, isize=opt.crop_size)
 
         if self.isTrain:
             # define loss functions

@@ -10,7 +10,7 @@ You need to implement the following functions:
     -- <__getitem__>: Return a data point and its metadata information.
     -- <__len__>: Return the number of images.
 """
-from data.base_dataset import BaseDataset, get_transform
+from ..data.base_dataset import BaseDataset, get_transform
 from PIL import Image
 import os
 
@@ -48,6 +48,7 @@ class CelebaDataset(BaseDataset):
             a dictionary of data with their names. It usually contains the data itself and its metadata information.
         """
         img_path = os.path.join(self.dataroot, self.listdir[index])
+
         with open(img_path, 'rb') as f:
             image = Image.open(f)
             image = image.convert('RGB')

@@ -56,6 +56,9 @@ def get_transform(opt, grayscale=False, convert=True):
     if 'centercrop' in opt.preprocess:
         transform_list.append(transforms.CenterCrop(opt.load_size))
 
+    if 'randomcrop' in opt.preprocess:
+        transform_list.append(transforms.RandomCrop(opt.crop_size))
+
     if convert:
         transform_list += [transforms.ToTensor()]
         if grayscale:

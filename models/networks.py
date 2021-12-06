@@ -113,7 +113,7 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
 
 
 def define_G(output_nc, ngf, nz, netG, norm='batch', init_type='normal', init_gain=0.02,
-             gpu_ids=[]):
+             gpu_ids=[], isize=0):
     """Create a generator
 
     Parameters:
@@ -132,7 +132,7 @@ def define_G(output_nc, ngf, nz, netG, norm='batch', init_type='normal', init_ga
     norm_layer = get_norm_layer(norm_type=norm)
 
     if netG == 'celeba_generator':
-        net = CelebaGenerator(output_nc, ngf, nz, norm_layer=norm_layer)
+        net = CelebaGenerator(isize, output_nc, ngf, nz, norm_layer=norm_layer)
     elif netG == 'mnist_generator':
         net = MNISTGenerator(output_nc, ngf, nz, norm_layer=norm_layer)
     else:
@@ -140,7 +140,7 @@ def define_G(output_nc, ngf, nz, netG, norm='batch', init_type='normal', init_ga
     return init_net(net, init_type, init_gain, gpu_ids)
 
 
-def define_D(input_nc, ndf, netD, norm='batch', init_type='normal', init_gain=0.02, gpu_ids=[]):
+def define_D(input_nc, ndf, netD, norm='batch', init_type='normal', init_gain=0.02, gpu_ids=[], isize=0):
     """Create a discriminator
 
     Parameters:
@@ -158,7 +158,7 @@ def define_D(input_nc, ndf, netD, norm='batch', init_type='normal', init_gain=0.
     norm_layer = get_norm_layer(norm_type=norm)
 
     if netD == 'celeba_discriminator':
-        net = CelebaDiscriminator(input_nc, ndf, norm_layer=norm_layer)
+        net = CelebaDiscriminator(isize, input_nc, ndf, norm_layer=norm_layer)
     elif netD == "mnist_discriminator":
         net = MNISTDiscriminator(input_nc, ndf, norm_layer=norm_layer)
     else:
@@ -167,7 +167,7 @@ def define_D(input_nc, ndf, netD, norm='batch', init_type='normal', init_gain=0.
 
 
 def define_Encoder(input_nc, ngf, nz, net_encoder, norm='batch', init_type='normal', init_gain=0.02,
-                   gpu_ids=[]):
+                   gpu_ids=[], isize=0):
     """Create a generator
 
     Parameters:
@@ -188,13 +188,16 @@ def define_Encoder(input_nc, ngf, nz, net_encoder, norm='batch', init_type='norm
         net = CelebaEncoder(input_nc, ngf, nz, norm_layer=norm_layer)
     elif net_encoder == 'mnist_encoder':
         net = MNISTEncoder(input_nc, ngf, nz, norm_layer=norm_layer)
+    elif net_encoder == 'rls_encoder':
+        # net = RlsEncoder(isize, input_nc, ngf, nz, norm_layer=norm_layer)
+        net = CelebaEncoder(isize, input_nc, ngf, nz, norm_layer=norm_layer)
     else:
         raise NotImplementedError('Encoder model name [%s] is not recognized' % net_encoder)
     return init_net(net, init_type, init_gain, gpu_ids), net.kl
 
 
 def define_Decoder(output_nc, ndf, nz, net_decoder, norm='batch', init_type='normal', init_gain=0.02,
-                   gpu_ids=[]):
+                   gpu_ids=[], isize=0):
     """Create a generator
 
     Parameters:
@@ -212,9 +215,12 @@ def define_Decoder(output_nc, ndf, nz, net_decoder, norm='batch', init_type='nor
     norm_layer = get_norm_layer(norm_type=norm)
 
     if net_decoder == 'celeba_decoder':
-        net = CelebaDecoder(output_nc, ndf, nz, norm_layer=norm_layer)
+        net = CelebaDecoder(isize, output_nc, ndf, nz, norm_layer=norm_layer)
     elif net_decoder == 'mnist_decoder':
         net = MNISTDecoder(output_nc, ndf, nz, norm_layer=norm_layer)
+    elif net_decoder == 'rls_decoder':
+        # net = RlsDecoder(isize, output_nc, ndf, nz, norm_layer=norm_layer)
+        net = CelebaDecoder(isize, output_nc, ndf, nz, norm_layer=norm_layer)
     else:
         raise NotImplementedError('Encoder model name [%s] is not recognized' % net_decoder)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -302,6 +308,87 @@ class VAELoss(nn.Module):
 
 
 class CelebaGenerator(nn.Module):
+    def __init__(self, isize, output_nc, ngf, nz, norm_layer=nn.BatchNorm2d):
+        super(CelebaGenerator, self).__init__()
+
+        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+
+        cngf, tisize = ngf // 2, 4
+        while tisize != isize:
+            cngf *= 2
+            tisize *= 2
+
+        model = []
+
+        model += [
+            nn.ConvTranspose2d(nz, cngf, 4, stride=1, padding=0, output_padding=0, bias=use_bias),
+            norm_layer(cngf),
+            nn.ReLU(True)
+        ]
+
+        csize = 4
+
+        while csize < isize // 2:
+            model += [
+                nn.ConvTranspose2d(cngf, cngf // 2, 4, stride=2, padding=1, output_padding=0, bias=use_bias),
+                norm_layer(cngf // 2),
+                nn.ReLU(True),
+            ]
+            cngf = cngf // 2
+            csize *= 2
+
+        model += [
+            nn.ConvTranspose2d(cngf, output_nc, 4, stride=2, padding=1, output_padding=0, bias=use_bias),
+        ]
+
+        model += [nn.Tanh()]
+
+        self.model = nn.Sequential(*model)
+
+    def forward(self, input):
+        return self.model(input)
+
+"""
+class CelebaDiscriminator(nn.Module):
+    def __init__(self, isize, input_nc, ndf, norm_layer=nn.BatchNorm2d):
+        super(CelebaDiscriminator, self).__init__()
+
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+
+        model = [nn.Conv2d(input_nc, ndf, 4, stride=2, padding=1, bias=use_bias),
+                 nn.LeakyReLU(0.2, inplace=True)
+                 ]
+
+        csize, cndf = isize // 2, ndf
+
+        while csize > 4:
+            in_feat = cndf
+            out_feat = cndf * 2
+            model += [nn.Conv2d(in_feat, out_feat, 4, stride=2, padding=1, bias=use_bias),
+                     norm_layer(out_feat),
+                     nn.LeakyReLU(0.2, inplace=True)
+            ]
+            cndf *= 2
+            csize //= 2
+
+        model += [nn.Conv2d(cndf, 1, 4, stride=1, padding=0, bias=use_bias),
+                  nn.Sigmoid()
+                  ]
+
+        self.model = nn.Sequential(*model)
+
+    def forward(self, input):
+        return self.model(input)
+
+"""
+"""
+class CelebaGenerator(nn.Module):
     def __init__(self, output_nc, ngf, nz, norm_layer=nn.BatchNorm2d):
         super(CelebaGenerator, self).__init__()
 
@@ -338,9 +425,9 @@ class CelebaGenerator(nn.Module):
     def forward(self, input):
         return self.model(input)
 
-
+"""
 class CelebaDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf, norm_layer=nn.BatchNorm2d):
+    def __init__(self, isize, input_nc, ndf, norm_layer=nn.BatchNorm2d):
         super(CelebaDiscriminator, self).__init__()
 
         if type(norm_layer) == functools.partial:
@@ -351,21 +438,22 @@ class CelebaDiscriminator(nn.Module):
         model = [
             # input is (nc) x 64 x 64
             nn.Conv2d(input_nc, ndf, 4, 2, 1, bias=use_bias),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf) x 32 x 32
-            nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=use_bias),
-            norm_layer(ndf * 2),
-            nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*2) x 16 x 16
-            nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=use_bias),
-            norm_layer(ndf * 4),
-            nn.LeakyReLU(0.2, inplace=use_bias),
-            # state size. (ndf*4) x 8 x 8
-            nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=use_bias),
-            norm_layer(ndf * 8),
-            nn.LeakyReLU(0.2, inplace=use_bias),
+            nn.LeakyReLU(0.2, inplace=True)
+        ]
+
+        csize, cndf = isize // 2, ndf
+
+        while csize > 4:
+            model += [nn.Conv2d(cndf, cndf * 2, 4, 2, 1, bias=use_bias),
+                      norm_layer(cndf * 2),
+                      nn.LeakyReLU(0.2, inplace=True),
+            ]
+            cndf *= 2
+            csize //= 2
+
+        model += [
             # state size. (ndf*8) x 4 x 4
-            nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=use_bias),
+            nn.Conv2d(cndf, 1, 4, 1, 0, bias=use_bias),
             nn.Sigmoid()
         ]
 
@@ -373,7 +461,6 @@ class CelebaDiscriminator(nn.Module):
 
     def forward(self, input):
         return self.model(input)
-
 
 class MNISTGenerator(nn.Module):
     def __init__(self, output_nc, ngf, nz, norm_layer=nn.BatchNorm2d):
@@ -444,9 +531,9 @@ class VariationalAutoencoder(nn.Module):
     def __init__(self, opt):
         super(VariationalAutoencoder, self).__init__()
         self.encoder, self.kl = define_Encoder(opt.input_nc, opt.ngf, opt.nz, opt.net_encoder, opt.norm, opt.init_type,
-                                      opt.init_gain, opt.gpu_ids)
+                                      opt.init_gain, opt.gpu_ids, isize=opt.crop_size)
         self.decoder = define_Decoder(opt.output_nc, opt.ngf, opt.nz, opt.net_decoder, opt.norm, opt.init_type,
-                                      opt.init_gain, opt.gpu_ids)
+                                      opt.init_gain, opt.gpu_ids, isize=opt.crop_size)
         self.opt = opt
 
         self.device = torch.device('cuda:{}'.format(opt.gpu_ids[0])) if opt.gpu_ids else torch.device(
@@ -457,6 +544,23 @@ class VariationalAutoencoder(nn.Module):
         z = self.encoder(x)
         return self.decoder(z)
 
+
+class Autoencoder(nn.Module):
+    def __init__(self, opt):
+        super(Autoencoder, self).__init__()
+        self.encoder, _ = define_Encoder(opt.input_nc, opt.ngf, opt.nz, opt.net_encoder, opt.norm, opt.init_type,
+                                      opt.init_gain, opt.gpu_ids, isize=opt.crop_size)
+        self.decoder = define_Decoder(opt.output_nc, opt.ngf, opt.nz, opt.net_decoder, opt.norm, opt.init_type,
+                                      opt.init_gain, opt.gpu_ids, isize=opt.crop_size)
+        self.opt = opt
+
+        self.device = torch.device('cuda:{}'.format(opt.gpu_ids[0])) if opt.gpu_ids else torch.device(
+            'cpu')  # get device name: CPU or GPU
+
+    def forward(self, x):
+        x = x.to(self.device)
+        z = self.encoder(x)
+        return self.decoder(z)
 
 class MNISTDecoder(nn.Module):
     def __init__(self, output_nc, ndf, nz, norm_layer=nn.BatchNorm2d):
@@ -522,36 +626,42 @@ class MNISTEncoder(nn.Module):
         mu = self.linear2(x)
         sigma = torch.exp(self.linear3(x))
         z = mu + sigma * self.N.sample(mu.shape)
-        self.kl = (sigma ** 2 + mu ** 2 - torch.log(sigma) - 1 / 2).sum()
+        self.kl = ((sigma ** 2 + mu ** 2 - torch.log(sigma) - 1) / 2).sum()
         return z
 
 
 class CelebaDecoder(nn.Module):
-    def __init__(self, output_nc, ndf, nz, norm_layer=nn.BatchNorm2d):
+    def __init__(self, isize, output_nc, ndf, nz, norm_layer=nn.BatchNorm2d):
         super(CelebaDecoder, self).__init__()
 
-        use_bias = True
+        cndf, tisize = ndf // 2, 4
+        while tisize != isize:
+            cndf *= 2
+            tisize *= 2
 
-        model = [
-            nn.Linear(nz, (ndf * 32)),
-            nn.ReLU(True),
-            nn.Linear((ndf * 32), 3 * 3 * (ndf * 8)),
+        use_bias = False
+        model = []
+
+        model += [nn.Unflatten(dim=1, unflattened_size=((nz), 1, 1))]
+
+        model += [
+            nn.ConvTranspose2d(nz, cndf, 4, stride=1, padding=0, output_padding=0, bias=use_bias),
+            norm_layer(cndf),
             nn.ReLU(True)
         ]
 
-        model += [nn.Unflatten(dim=1, unflattened_size=((ndf * 8), 3, 3))]
+        csize = 4
 
+        while csize < isize // 2:
+            model += [
+                nn.ConvTranspose2d(cndf, cndf // 2, 4, stride=2, padding=1, output_padding=0, bias=use_bias),
+                norm_layer(cndf // 2),
+                nn.ReLU(True),
+            ]
+            cndf = cndf // 2
+            csize *= 2
         model += [
-            nn.ConvTranspose2d(ndf * 8, ndf * 4, 3, stride=2, padding=0, output_padding=1, bias=use_bias),
-            norm_layer(ndf * 4),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(ndf * 4, ndf * 2, 3, stride=2, padding=1, output_padding=1, bias=use_bias),
-            norm_layer(ndf * 2),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(ndf * 2, ndf, 3, stride=2, padding=1, output_padding=1, bias=use_bias),
-            norm_layer(ndf),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(ndf, output_nc, 4, stride=2, padding=1, output_padding=0, bias=use_bias)
+            nn.ConvTranspose2d(cndf, output_nc, 4, stride=2, padding=1, output_padding=0, bias=use_bias),
         ]
 
         model += [nn.Sigmoid()]
@@ -565,21 +675,31 @@ class CelebaDecoder(nn.Module):
 
 
 class CelebaEncoder(nn.Module):
-    def __init__(self, input_nc, ngf, nz, norm_layer=nn.BatchNorm2d):
+    def __init__(self, isize, input_nc, ngf, nz, norm_layer=nn.BatchNorm2d):
         super(CelebaEncoder, self).__init__()
 
-        use_bias = True
+        use_bias = False
 
-        self.conv0 = nn.Conv2d(input_nc, ngf, 5, stride=2, padding=0, bias=use_bias)
-        self.batch0 = norm_layer(ngf)
-        self.conv1 = nn.Conv2d(ngf, ngf * 2, 3, stride=2, padding=0, bias=use_bias)
-        self.batch1 = norm_layer(ngf * 2)
-        self.conv2 = nn.Conv2d(ngf * 2, ngf * 4, 3, stride=2, padding=1, bias=use_bias)
-        self.batch2 = norm_layer(ngf * 4)
-        self.conv3 = nn.Conv2d(ngf * 4, ngf * 8, 3, stride=2, padding=0, bias=use_bias)
-        self.linear1 = nn.Linear(3 * 3 * (ngf * 8), (ngf * 32))
-        self.linear2 = nn.Linear((ngf * 32), nz)
-        self.linear3 = nn.Linear((ngf * 32), nz)
+        model = [nn.Conv2d(input_nc, ngf, 4, stride=2, padding=1, bias=use_bias),
+                 nn.ReLU(True)
+                 ]
+
+        csize, cngf = isize // 2, ngf
+        while csize > 4:
+            in_feat = cngf
+            out_feat = cngf * 2
+            model += [nn.Conv2d(in_feat, out_feat, 4, stride=2, padding=1, bias=use_bias),
+                     norm_layer(out_feat),
+                     nn.ReLU(True)
+            ]
+            cngf *= 2
+            csize //= 2
+        model += [nn.Conv2d(cngf, cngf * 2, 4, stride=2, padding=0, bias=use_bias),
+                  nn.ReLU(True)
+                  ]
+        self.model = nn.Sequential(*model)
+        self.linear2 = nn.Linear((cngf * 2), nz)
+        self.linear3 = nn.Linear((cngf * 2), nz)
 
         self.N = torch.distributions.Normal(0, 1)
         self.N.loc = self.N.loc.cuda()  # hack to get sampling on the GPU
@@ -587,14 +707,85 @@ class CelebaEncoder(nn.Module):
         self.kl = 0
 
     def forward(self, input):
-        x = F.relu(self.batch0(self.conv0(input)))
-        x = F.relu(self.batch1(self.conv1(x)))
-        x = F.relu(self.batch2(self.conv2(x)))
-        x = F.relu(self.conv3(x))
+        x = self.model(input)
         x = torch.flatten(x, start_dim=1)
-        x = F.relu(self.linear1(x))
         mu = self.linear2(x)
         sigma = torch.exp(self.linear3(x))
         z = mu + sigma * self.N.sample(mu.shape)
         self.kl = (sigma ** 2 + mu ** 2 - torch.log(sigma) - 1 / 2).sum()
         return z
+
+
+class RlsDecoder(nn.Module):
+    def __init__(self, isize, output_nc, ndf, nz, norm_layer=nn.BatchNorm2d):
+        super(RlsDecoder, self).__init__()
+        cndf, tisize = ndf // 2, 4
+        while tisize != isize:
+            cndf *= 2
+            tisize *= 2
+
+        use_bias = False
+        model = []
+
+        model += [nn.Unflatten(dim=1, unflattened_size=((nz), 1, 1))]
+
+        model += [
+            nn.ConvTranspose2d(nz, cndf, 4, stride=1, padding=0, output_padding=0, bias=use_bias),
+            norm_layer(cndf),
+            nn.ReLU(True)
+        ]
+
+        csize = 4
+
+        while csize < isize // 2:
+            model += [
+                nn.ConvTranspose2d(cndf, cndf // 2, 4, stride=2, padding=1, output_padding=0, bias=use_bias),
+                norm_layer(cndf // 2),
+                nn.ReLU(True),
+            ]
+            cndf = cndf // 2
+            csize *= 2
+        model += [
+            nn.ConvTranspose2d(cndf, output_nc, 4, stride=2, padding=1, output_padding=0, bias=use_bias),
+        ]
+        model += [nn.Tanh()]
+
+        self.model = nn.Sequential(*model)
+
+    def forward(self, input):
+        if input.ndim != 2:
+            input = torch.reshape(input, (input.shape[0], input.shape[1]))
+        return self.model(input)
+
+
+class RlsEncoder(nn.Module):
+    def __init__(self, isize, input_nc, ngf, nz, norm_layer=nn.BatchNorm2d):
+        super(RlsEncoder, self).__init__()
+
+        use_bias = False
+
+        model = [nn.Conv2d(input_nc, ngf, 4, stride=2, padding=1, bias=use_bias),
+                 nn.LeakyReLU(True)
+                 ]
+
+        csize, cngf = isize // 2, ngf
+        while csize > 4:
+            in_feat = cngf
+            out_feat = cngf * 2
+            model += [nn.Conv2d(in_feat, out_feat, 4, stride=2, padding=1, bias=use_bias),
+                     norm_layer(out_feat),
+                     nn.LeakyReLU(True)
+            ]
+            cngf *= 2
+            csize //= 2
+        model += [nn.Conv2d(cngf, nz, 4, stride=2, padding=0, bias=use_bias),
+                  norm_layer(nz),
+                  nn.LeakyReLU(True)
+                  ]
+        self.kl = 0
+        self.model = nn.Sequential(*model)
+
+    def forward(self, input):
+        x = self.model(input)
+        x = torch.flatten(x, start_dim=1)
+        return x
