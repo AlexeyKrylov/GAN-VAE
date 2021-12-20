@@ -37,7 +37,7 @@ class RlsDataset(BaseDataset):
         Returns:
             a dictionary of data with their names. It usually contains the data itself and its metadata information.
         """
-        new_index = np.random.randint(0, 3, 1)[0]
+        new_index = np.random.randint(0, len(self.listdir), 1)[0]
         img_path = os.path.join(self.dataroot, self.listdir[new_index])
         with open(img_path, 'rb') as f:
             image = Image.open(f)
