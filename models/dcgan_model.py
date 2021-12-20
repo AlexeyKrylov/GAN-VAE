@@ -46,7 +46,7 @@ class DCGANModel(BaseModel):
         self.nz = opt.nz
         self.global_loss_D = 0
         self.global_loss_G = 0
-        self.fixed_noise = torch.randn(64, opt.nz, 1, 1,
+        self.fixed_noise = torch.randn(9, opt.nz, 1, 1,
                                        device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'))
 
     def compute_visuals(self, epoch):

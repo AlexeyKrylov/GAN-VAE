@@ -16,6 +16,7 @@ class VAEModel(BaseModel):
         Parameters:
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
+        self.iii = 1
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ['VAE']
@@ -34,8 +35,16 @@ class VAEModel(BaseModel):
 
         self.nz = opt.nz
         self.global_loss = 0
-        self.fixed_noise = torch.randn(64, opt.nz, 1, 1,
+
+        Norm = torch.distributions.Normal(0, 1)
+
+        mu = torch.randn(8, opt.nz, 1, 1,
                                        device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'))
+        sigma = torch.randn(8, opt.nz, 1, 1,
+                                       device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'))
+
+
+        self.fixed_noise = mu + sigma * Norm.sample(mu.shape).to(torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'))
 
     def compute_visuals(self, epoch):
         """Calculate additional output images for visdom and HTML visualization"""
@@ -44,6 +53,12 @@ class VAEModel(BaseModel):
             fake = self.netVAE.decoder(self.fixed_noise).detach().cpu()
         plt.imsave(f"{self.opt.image_pred_dir}\image{epoch}.png",
                    np.transpose(vutils.make_grid(fake, padding=2, normalize=True), (1, 2, 0)).cpu().numpy())
+        plt.imsave(f"{self.opt.image_pred_dir}\image_fake{self.iii}.png",
+                   np.transpose(vutils.make_grid(self.fake.detach().cpu(), padding=2, normalize=True), (1, 2, 0)).cpu().numpy())
+        plt.imsave(f"{self.opt.image_pred_dir}\image_real{self.iii}.png",
+                   np.transpose(vutils.make_grid(self.real.detach().cpu(), padding=2, normalize=True),
+                               (1, 2, 0)).cpu().numpy())
+        self.iii += 1
 
     def set_input(self, input):
         """Unpack input data from the dataloader and perform necessary pre-processing steps.
@@ -56,6 +71,12 @@ class VAEModel(BaseModel):
     def forward(self):
         # Generate fake image batch
         self.fake = self.netVAE(self.real)
+        # plt.imsave(f"{self.opt.image_pred_dir}\image_fake{self.iii}.png",
+        #            np.transpose(vutils.make_grid(self.fake.detach().cpu(), padding=2, normalize=True), (1, 2, 0)).cpu().numpy())
+        # plt.imsave(f"{self.opt.image_pred_dir}\image_real{self.iii}.png",
+        #           np.transpose(vutils.make_grid(self.real.detach().cpu(), padding=2, normalize=True),
+        #                       (1, 2, 0)).cpu().numpy())
+        # self.iii += 1
 
     def backward(self):
         """Calculate the loss for generator G"""
