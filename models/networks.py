@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
+import torchvision
 import torch.nn.functional as F
 
 
@@ -286,13 +287,52 @@ class GANLoss(nn.Module):
         return loss
 
 
+class VGGPerceptualLoss(torch.nn.Module):
+    def __init__(self, resize=True):
+        super(VGGPerceptualLoss, self).__init__()
+        blocks = []
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[:4].eval())
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[4:9].eval())
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[9:16].eval())
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[16:23].eval())
+        for bl in blocks:
+            for p in bl.parameters():
+                p.requires_grad = False
+
+        self.blocks = torch.nn.ModuleList(blocks)
+        self.transform = torch.nn.functional.interpolate
+        self.mean = torch.nn.Parameter(torch.tensor([0.485, 0.456, 0.406], device='cuda').view(1, 3, 1, 1))
+        self.std = torch.nn.Parameter(torch.tensor([0.229, 0.224, 0.225], device='cuda').view(1, 3, 1, 1))
+        self.resize = resize
+
+    def forward(self, input, target):
+        if input.shape[1] != 3:
+            input = input.repeat(1, 3, 1, 1)
+            target = target.repeat(1, 3, 1, 1)
+        input = (input - self.mean) / self.std
+        target = (target - self.mean) / self.std
+        if self.resize:
+            input = self.transform(input, mode='bilinear', size=(224, 224), align_corners=False)
+            target = self.transform(target, mode='bilinear', size=(224, 224), align_corners=False)
+        loss = 0.0
+        x = input
+        y = target
+        for block in self.blocks:
+            block = block.to(device='cuda')
+            x = block(x)
+            y = block(y)
+            loss += torch.nn.functional.l1_loss(x, y)
+        return loss
+
 class VAELoss(nn.Module):
     """Define different VAE objectives."""
 
     def __init__(self):
         """Initialize the VAELoss class."""
         super(VAELoss, self).__init__()
-        self.loss = lambda prediction, real, kl: ((prediction - real)**2).sum() + kl
+        loss = nn.L1Loss()
+        perceptloss = VGGPerceptualLoss(resize=True)
+        self.loss = lambda prediction, real, kl: loss(prediction, real) + kl + perceptloss(prediction, real)
 
     def __call__(self, prediction, real, kl):
         """Calculate loss given Discriminator's output and ground truth labels.
@@ -700,11 +740,13 @@ class ResizeConv2d(nn.Module):
         super().__init__()
         self.scale_factor = scale_factor
         self.mode = mode
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=1)
+        #self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=1)
+        self.convt = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=scale_factor, padding=1, output_padding=1)
 
     def forward(self, x):
-        x = F.interpolate(x, scale_factor=self.scale_factor, mode=self.mode)
-        x = self.conv(x)
+        #x = F.interpolate(x, scale_factor=self.scale_factor, mode=self.mode)
+        #x = self.conv(x)
+        x = self.convt(x)
         return x
 
 class BasicBlock(nn.Module):
@@ -723,10 +765,12 @@ class BasicBlock(nn.Module):
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
+        self.drop = nn.Dropout2d(0.1)
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
         self.stride = stride
+        self.drop1 = nn.Dropout(0.1)
 
     def forward(self, x):
         identity = x
@@ -734,7 +778,7 @@ class BasicBlock(nn.Module):
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
-
+        out = self.drop(out)
         out = self.conv2(out)
         out = self.bn2(out)
 
@@ -743,6 +787,7 @@ class BasicBlock(nn.Module):
 
         out += identity
         out = self.relu(out)
+        out = self.drop1(out)
 
         return out
 
@@ -756,7 +801,8 @@ class BasicBlockDec(nn.Module):
         self.conv2 = nn.Conv2d(in_planes, in_planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(in_planes)
         # self.bn1 could have been placed here, but that messes up the order of the layers when printing the class
-
+        self.drop = nn.Dropout2d(0.1)
+        self.drop1 = nn.Dropout2d(0.1)
         if stride == 1:
             self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
             self.bn1 = nn.BatchNorm2d(planes)
@@ -770,10 +816,10 @@ class BasicBlockDec(nn.Module):
             )
 
     def forward(self, x):
-        out = torch.relu(self.bn2(self.conv2(x)))
+        out = self.drop(torch.relu(self.bn2(self.conv2(x))))
         out = self.bn1(self.conv1(out))
         out += self.shortcut(x)
-        out = torch.relu(out)
+        out = self.drop1(torch.relu(out))
         return out
 
 class Bottleneck(nn.Module):
@@ -793,7 +839,7 @@ class Bottleneck(nn.Module):
         self.bn2 = norm_layer(width)
         self.conv3 = conv1x1(width, planes * self.expansion)
         self.bn3 = norm_layer(planes * self.expansion)
-        self.relu = nn.Relu(inplace=True)
+        self.relu = nn.ReLU(inplace=True)
         self.downsample = donwsample
         self.stride = stride
 
@@ -842,6 +888,7 @@ class ResNet(nn.Module):
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
+        self.drop = nn.Dropout2d(0.1)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
@@ -905,6 +952,7 @@ class ResNet(nn.Module):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
+        x = self.drop(x)
         x = self.maxpool(x)
 
         x = self.layer1(x)
