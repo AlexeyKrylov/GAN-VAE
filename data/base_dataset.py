@@ -52,7 +52,12 @@ def get_transform(opt, grayscale=False, convert=True):
     transform_list = []
     if 'resize' in opt.preprocess:
         transform_list.append(transforms.Resize(opt.load_size))
-
+    if 'verflip' in opt.preprocess:
+        transform_list.append(transforms.RandomVerticalFlip(p=0.5))
+    if 'rotate' in opt.preprocess:
+        transform_list.append(transforms.RandomRotation(degrees=90))
+    if 'horflip' in opt.preprocess:
+        transform_list.append(transforms.RandomHorizontalFlip(p=0.5))
     if 'centercrop' in opt.preprocess:
         transform_list.append(transforms.CenterCrop(opt.load_size))
 
