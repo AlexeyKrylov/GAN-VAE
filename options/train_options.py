@@ -31,7 +31,7 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--lr_decay_iters', type=int, default=50,
                             help='multiply by a gamma every lr_decay_iters iterations')
         parser.add_argument('--k_D', type=int, default=1, help='the number of discriminator\'s iterations')
-        parser.add_argument('--image_pred_dir', type=str, default="image_pred_dir",
+        parser.add_argument('--image_pred_dir', type=str, default="imagedir",
                             help='the directory for saving pred images on the fixed noise')
 
         self.isTrain = True
