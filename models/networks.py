@@ -765,12 +765,12 @@ class BasicBlock(nn.Module):
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.drop = nn.Dropout2d(0.1)
+        self.drop = nn.Dropout2d(0.01)
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
         self.stride = stride
-        self.drop1 = nn.Dropout(0.1)
+        self.drop1 = nn.Dropout(0.01)
 
     def forward(self, x):
         identity = x
@@ -801,8 +801,8 @@ class BasicBlockDec(nn.Module):
         self.conv2 = nn.Conv2d(in_planes, in_planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(in_planes)
         # self.bn1 could have been placed here, but that messes up the order of the layers when printing the class
-        self.drop = nn.Dropout2d(0.1)
-        self.drop1 = nn.Dropout2d(0.1)
+        self.drop = nn.Dropout2d(0.01)
+        self.drop1 = nn.Dropout2d(0.01)
         if stride == 1:
             self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
             self.bn1 = nn.BatchNorm2d(planes)
@@ -888,7 +888,7 @@ class ResNet(nn.Module):
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
-        self.drop = nn.Dropout2d(0.1)
+        self.drop = nn.Dropout2d(0.01)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
